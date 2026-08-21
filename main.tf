@@ -1,8 +1,17 @@
-data "aws_subnets" "available-subnets"{
-    filter {
-        name = "tag:Name"
-        values = ["Our-Public-*"]
-    }
+data "aws_vpc" "default" {
+  default = true
+}
+
+data "aws_subnets" "default-vpc" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.default.id]
+  }
+
+  filter {
+    name   = "state"
+    values = ["available"]
+  }
 }
 
 resource "aws_eks_cluster" "project-cluster" {
@@ -10,7 +19,7 @@ resource "aws_eks_cluster" "project-cluster" {
   role_arn = aws_iam_role.example.arn
 
   vpc_config {
-    subnet_ids = data.aws_subnets.available-subnets.ids
+    subnet_ids = data.aws_subnets.default-vpc.ids
   }
 
   # Ensure that IAM Role permissions are created before and deleted after EKS Cluster handling.
@@ -33,7 +42,7 @@ resource "aws_eks_node_group" "node-grp" {
   cluster_name    = aws_eks_cluster.project-cluster.name
   node_group_name = "pc-node-group"
   node_role_arn   = aws_iam_role.worker.arn
-  subnet_ids      = data.aws_subnets.available-subnets.ids
+  subnet_ids      = data.aws_subnets.default-vpc.ids
   capacity_type   = "ON_DEMAND"
   disk_size       = "20"
   instance_types  = ["t3.micro"]
