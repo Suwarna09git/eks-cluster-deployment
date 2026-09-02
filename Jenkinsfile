@@ -12,7 +12,7 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                git branch: 'main' 
+                git branch: 'main', 
                 url: 'https://github.com/Suwarna09git/eks-cluster-deployment-module.git'
             }
         }
