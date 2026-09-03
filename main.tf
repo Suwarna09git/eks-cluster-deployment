@@ -13,9 +13,62 @@ data "aws_subnets" "default-vpc" {
   }
 }
 
-# Automatically picks up whichever IAM identity is running `terraform apply`
 data "aws_caller_identity" "current" {}
 
+# --- IAM role for the EKS control plane ---
+resource "aws_iam_role" "example" {
+  name = "eks-cluster-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "eks.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "example-AmazonEKSClusterPolicy" {
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
+  role       = aws_iam_role.example.name
+}
+
+resource "aws_iam_role_policy_attachment" "example-AmazonEKSVPCResourceController" {
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSVPCResourceController"
+  role       = aws_iam_role.example.name
+}
+
+# --- IAM role for the worker nodes ---
+resource "aws_iam_role" "worker" {
+  name = "eks-node-group-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "ec2.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "AmazonEKSWorkerNodePolicy" {
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
+  role       = aws_iam_role.worker.name
+}
+
+resource "aws_iam_role_policy_attachment" "AmazonEKS_CNI_Policy" {
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+  role       = aws_iam_role.worker.name
+}
+
+resource "aws_iam_role_policy_attachment" "AmazonEC2ContainerRegistryReadOnly" {
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+  role       = aws_iam_role.worker.name
+}
+
+# --- EKS Cluster ---
 resource "aws_eks_cluster" "project-cluster" {
   name     = "project-cluster"
   role_arn = aws_iam_role.example.arn
@@ -45,6 +98,7 @@ output "kubeconfig-certificate-authority-data" {
   value = aws_eks_cluster.project-cluster.certificate_authority[0].data
 }
 
+# --- EKS Managed Node Group ---
 resource "aws_eks_node_group" "node-grp" {
   cluster_name    = aws_eks_cluster.project-cluster.name
   node_group_name = "pc-node-group"
@@ -68,11 +122,12 @@ resource "aws_eks_node_group" "node-grp" {
   depends_on = [
     aws_iam_role_policy_attachment.AmazonEKSWorkerNodePolicy,
     aws_iam_role_policy_attachment.AmazonEKS_CNI_Policy,
-    aws_iam_role_policy_attachment.AmazonEC2ContainerRegistryReadOnly
+    aws_iam_role_policy_attachment.AmazonEC2ContainerRegistryReadOnly,
+    aws_eks_cluster.project-cluster,
   ]
 }
 
-# --- New: explicit access entry so your console identity has admin access too ---
+# --- Grant current Terraform identity admin access to view/manage cluster ---
 resource "aws_eks_access_entry" "current_user" {
   cluster_name  = aws_eks_cluster.project-cluster.name
   principal_arn = data.aws_caller_identity.current.arn
